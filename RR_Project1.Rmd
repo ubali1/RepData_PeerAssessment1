@@ -1,0 +1,201 @@
+---
+title: "Reproducible Research Assignment 1"
+author: "Utsav Bali"
+date: "14 October 2016"
+output: html_document
+---
+
+## Load packages
+Loading the required packages for downstream analysis...
+
+```{r}
+
+suppressWarnings(library(dplyr))
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(lattice))
+```
+
+## Data source
+
+The project data is downloaded from the following URL
+
+```{r}
+#url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+```
+
+Download the data first from Coursera Reproducing Data Peer Assignment 1 if it’s not already there.
+
+```{r}
+#if (!file.exists("U:/Utsav Bali/Coursera/Reproducible_Research/repdata_data_activity.zip")) download.file(url, destfile = "U:/Utsav Bali/Coursera/Reproducible_Research/repdata_data_activity.zip", mode="wb")
+#if (!file.exists("activity.csv")) unzip("repdata_data_activity.zip")
+```
+
+## Reading data
+
+Let's read the data from the csv file and have a quick look at its attributes:
+
+```{r}
+activity <- read.csv("activity.csv", quote="\"", sep=",", na.strings = c("", "NA"), head = TRUE)
+dim(activity)
+str(activity)
+colnames(activity)
+```
+
+We can see the dataset consists of three variables called "steps", "date" and "interval" and contains 17568 observations. We also see that there are a number of missing values in the "steps" variable. Furthermore, the date variable is a factor variable which needs to be converted to POSIXct for downstream analysis.
+
+## Some data preprocessing
+
+```{r}
+activity$date <- as.Date(activity$date)
+```
+
+Let's group the data by date using the dplyr package
+
+```{r}
+activity_by_date <- group_by(activity, date)
+length(activity_by_date$steps)
+```
+
+We observed, that of the 17,568 values, a number of entries in the steps variable have multiple na values, let's 'filter' the activity_by_date data frame to exclude rows that contain na values.
+
+```{r}
+activity_by_date_filtered <- filter(activity_by_date, !is.na(steps))
+length(activity_by_date_filtered$steps)
+```
+
+## What is the overall distribution of the total number of steps taken
+
+Here, we can see that we have reduced the number of rows to 15,264 after excluding the na values. So with this information and the data grouped by date, we can now summarize the data to report the total number of steps per unit time. 
+```{r}
+activity_summary <- summarize(activity_by_date_filtered, total_steps = sum(steps, na.rm = TRUE))
+activity_summary
+```
+
+Let's visualize this date using a histogram
+
+```{r}
+g <- ggplot(activity_summary, aes(x = total_steps))
+g + geom_histogram(fill = "blue", binwidth = 2000) + labs(title = "Total daily steps", x = "Total steps", y = "frequency")
+```
+
+We can see that the mean number of steps is:
+```{r} 
+mean(activity_summary$total_steps) 
+``` 
+and the median number of steps is: 
+```{r} 
+median(activity_summary$total_steps) 
+``` 
+
+## Now let's identify the average daily activity of the users
+
+We now group the activity data by the time interval and remove the na values as we had done previously. This time, we shall be creating a variable called average_steps which would contain the mean value of the number of steps taken at each time interval within the data set. 
+
+```{r}
+activity_by_interval <- group_by(activity, interval)
+activity_by_interval_filtered <- filter(activity_by_interval, !is.na(steps))
+activity_summary_interval <- summarize(activity_by_interval_filtered, average_steps = mean(steps, na.rm = TRUE))
+activity_summary_interval
+```
+
+So, let's plot these avearage values as a histogram to see what they look like. 
+
+```{r}
+g1 <- ggplot(activity_summary_interval, aes(x = interval, y = average_steps))
+g1 + geom_line(color = "blue", size = 1) + labs(title = "Average daily steps", x = "Interval", y = "Average steps per day")
+```
+
+We can see that the maximum number of steps taken lies somewhere between 500 and 1000 minute interval. So let's specify at exactly which interval, do we observe the maximum number of steps. 
+
+```{r}
+activity_summary_interval[which.max(activity_summary_interval$average_steps),]
+```
+
+We can see that the maximal number of steps occurs at 835 minutes.
+
+## Imputing missing values
+
+We know that there are a number of missing steps values in the activity data set. Let's find out the total number of missing values. 
+
+```{r}
+sum(is.na(activity$steps))
+```
+
+
+```{r}
+## let's create a new data frame first and call it activity1
+activity1 <- activity
+
+## let's identify the all the values that are either true or false for na's in the steps variable and save them under na_values
+na_values <- is.na(activity1$steps)
+
+## let's subset activity1 data frame to exclude all rows with na in the steps variable. 
+activity1_no_na <- subset(activity1, !is.na(activity1$steps))
+
+## let's calculate the mean value for steps within each interval in this new subsetted data frame
+average_interval_values <- tapply(activity1_no_na$steps, activity1_no_na$interval, mean, na.rm = TRUE, simplify = T)
+
+## now we'll impute the average value into the steps variable
+activity1$steps[na_values] <- average_interval_values[as.character(activity1$interval[na_values])]
+## let's summarize the dataset to see if any na's are present
+summary(activity1)
+```
+
+As we can see, we have eliminated all the missing na values from the steps variable in this dataset. Let's now try and replot the histogram as we did before. 
+
+```{r}
+activity1_bydate <- group_by(activity1, date)
+activity1_summary <- summarize(activity1_bydate, total_steps = sum(steps, na.rm = TRUE))
+g2 <- ggplot(activity1_summary, aes(x = total_steps))
+g2 + geom_histogram(fill = "blue", binwidth = 2000) + labs(title = "Total daily steps with missing values imputed", x = "Total steps", y = "frequency")
+```
+
+We can now recalculate the mean with the missing values imputed:
+```{r} 
+mean(activity1_summary$total_steps) 
+``` 
+and the median number of steps is: 
+```{r} 
+median(activity1_summary$total_steps) 
+``` 
+
+Both the mean and the median values are alike as expected since we imputed the missing values with the mean values. 
+
+## Let's determine the differences in daily activity pattern between weekdays and weekends
+
+We shall amend the imputed data frame activity1 to include a factor variable with two levels, namely weekend and weekday. 
+
+```{r}
+weekday <- function(day) {
+  weekdays(day)
+  ifelse (weekdays(day) == "Saturday" | weekdays(day) == "Sunday", "weekend", "weekday")
+}
+```
+
+Let's assign the weekday/weekend levels to a newly created factor variable called week
+
+```{r}
+week <- sapply(activity1$date, weekday) 
+## we now add the variable week to the activity1 data frame
+activity1$week <-as.factor(week)
+head(activity1)
+```
+
+Here we can see that we now have another variable called week with two levels, weekeday or weekend for each row. We can now try and create another time series plot for the 5-minute intervals against the average total steps taken across all weekdays or weekends. 
+First, let's prepare the dataset to calculate the mean values at each time interval. We shall use the aggregate function to calculate summary statistics for our data set. 
+
+```{r}
+week_df <- aggregate(steps ~ week + interval, data=activity1, FUN=mean)
+head(week_df)
+```
+
+Let's plot this data frame containing mean number of steps for the weekend and weekdays for each time interval. We shall use the lattice package to plot this using week as a factor -  
+
+```{r}
+xyplot(steps ~ interval | factor(week), layout = c(1, 2), xlab="Interval", ylab="Number of steps", type="l", lty=1, data=week_df)
+```
+
+A quick over view of the panel plots suggest that individuals are more active earlier in the day on the weekdays and that the weekends, in general, have higher activity levels than the weekdays. 
+
+
+
